@@ -195,6 +195,10 @@ def active_sample(unlabeled_rows, sample_size, method='random', model=None):
         coreset = Coreset_Greedy(all_features)
         new_batch, max_distance = coreset.sample(labeled_indices, sample_size)
         
+        # unlabeled rows start after labeled rows in all_features
+        # so offset the indices
+        new_batch = [i - len(labeled_features) for i in new_batch]
+        
         sample_rows = unlabeled_rows[new_batch]
         # pdb.set_trace()
 
