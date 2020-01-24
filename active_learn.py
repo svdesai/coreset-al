@@ -24,6 +24,7 @@ from dsets.mnist import MNIST
 from mymodels.mnist_net import Net
 from train_test import train, test
 from init_pool_tools import obtain_init_pool
+from coreset import Coreset_Greedy
 
 
 def argparser():
@@ -92,10 +93,11 @@ def get_features(model, loader):
             # pdb.set_trace()
 
             count += 1
-            # if count > 2000:
+            # if count > 10000:
             #     break
 
-            features.append((img_name, output.cpu().numpy()))
+            features.append(output.cpu().numpy())
+            # features.append((img_name, output.cpu().numpy()))
     return features
 def active_sample(unlabeled_rows, sample_size, method='random', model=None):
     if method == 'random':
@@ -103,8 +105,69 @@ def active_sample(unlabeled_rows, sample_size, method='random', model=None):
         sample_rows = unlabeled_rows[:sample_size]
 
         return sample_rows
-    if method == 'coreset':
+    # if method == 'coreset':
 
+    #     #create unlabeled loader
+    #     data_transforms = transforms.Compose([
+    #                            transforms.ToTensor(),
+    #                            transforms.Normalize((0.1307,), (0.3081,))
+    #                        ])
+
+    #     unlab_dset = MNIST(args.dataset_root, subset='train',csv_file='unlabeled.csv',transform=data_transforms)
+    #     unlab_loader = DataLoader(unlab_dset, batch_size=1, shuffle=False, **kwargs)
+
+    #     #labeled dataloader
+    #     lab_dset = MNIST(args.dataset_root, subset='train',csv_file='labeled.csv',transform=data_transforms)
+    #     lab_loader = DataLoader(lab_dset, batch_size=1, shuffle=False, **kwargs)
+
+    #     # get labeled features
+    #     labeled_features = get_features(model, lab_loader) # (img_name, features)
+    #     # pdb.set_trace()
+    #     # get unlabeled features
+    #     unlabeled_features = get_features(model, unlab_loader)# (img_name, features)
+
+    #     # find closest pairs
+    #     closest_pairs = [] # (unlabeled_index, labeled_index)
+
+    #     for u_idx, u in enumerate(unlabeled_features):
+
+    #         u_rep = u[1]
+
+    #         l_rep = labeled_features[0][1]
+    #         min_dist = np.linalg.norm(u_rep - l_rep)
+
+    #         closest_pair = (u_idx, 0, min_dist) # init
+    #         for l_i in range(1,len(labeled_features)):
+    #             l = labeled_features[l_i]
+    #             l_rep = l[1]
+    #             curr_dist = np.linalg.norm(u_rep - l_rep)
+    #             if min_dist > curr_dist:
+    #                 min_dist = curr_dist
+    #                 closest_pair = (u_idx, l_i, min_dist)
+
+    #         closest_pairs.append(closest_pair)
+    #     # pdb.set_trace()
+
+    #     # after obtaining closest pairs
+    #     # find closest pairs which are the farthest
+    #     closest_pairs = sorted(closest_pairs, key=lambda x:x[2], reverse=True) #sort by distance
+
+    #     sampled_items = closest_pairs[:sample_size]
+
+    #     # extract indices
+    #     unlab_indices = [x[0] for x in sampled_items]
+
+    #     # finally
+    #     sample_rows = []
+    #     for idx, u in enumerate(unlabeled_rows):
+    #         if idx in unlab_indices:
+    #             sample_rows.append(u)
+
+    #     # pdb.set_trace()
+    #     assert len(sample_rows) == sample_size
+    #     return np.array(sample_rows)
+    
+    if method == 'coreset':
         #create unlabeled loader
         data_transforms = transforms.Compose([
                                transforms.ToTensor(),
@@ -124,46 +187,18 @@ def active_sample(unlabeled_rows, sample_size, method='random', model=None):
         # get unlabeled features
         unlabeled_features = get_features(model, unlab_loader)# (img_name, features)
 
-        # find closest pairs
-        closest_pairs = [] # (unlabeled_index, labeled_index)
+        all_features = labeled_features + unlabeled_features
+        labeled_indices = np.arange(0,len(labeled_features))
 
-        for u_idx, u in enumerate(unlabeled_features):
+        
 
-            u_rep = u[1]
-
-            l_rep = labeled_features[0][1]
-            min_dist = np.linalg.norm(u_rep - l_rep)
-
-            closest_pair = (u_idx, 0, min_dist) # init
-            for l_i in range(1,len(labeled_features)):
-                l = labeled_features[l_i]
-                l_rep = l[1]
-                curr_dist = np.linalg.norm(u_rep - l_rep)
-                if min_dist > curr_dist:
-                    min_dist = curr_dist
-                    closest_pair = (u_idx, l_i, min_dist)
-
-            closest_pairs.append(closest_pair)
+        coreset = Coreset_Greedy(all_features)
+        new_batch, max_distance = coreset.sample(labeled_indices, sample_size)
+        
+        sample_rows = unlabeled_rows[new_batch]
         # pdb.set_trace()
 
-        # after obtaining closest pairs
-        # find closest pairs which are the farthest
-        closest_pairs = sorted(closest_pairs, key=lambda x:x[2], reverse=True) #sort by distance
-
-        sampled_items = closest_pairs[:sample_size]
-
-        # extract indices
-        unlab_indices = [x[0] for x in sampled_items]
-
-        # finally
-        sample_rows = []
-        for idx, u in enumerate(unlabeled_rows):
-            if idx in unlab_indices:
-                sample_rows.append(u)
-
-        # pdb.set_trace()
-        assert len(sample_rows) == sample_size
-        return np.array(sample_rows)
+        return sample_rows
 
 
 def log(dest_dir, episode_id, sample_method, sample_time, accuracy, labeled_rows):

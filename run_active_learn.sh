@@ -1,9 +1,9 @@
-EPOCHS=1
+EPOCHS=10
 LR=1.0
 GAMMA=0.1
 INIT_SIZE=2000
 AL_BSIZE=1000
-SAMPLE_METHOD=coreset
+SAMPLE_METHOD=coreset_better
 DROOT=data/mnist_easy
 DNAME=mnist
 OUT_DIR=output/
