@@ -29,7 +29,7 @@ from coreset import Coreset_Greedy
 
 def argparser():
     parser = argparse.ArgumentParser(description='Active Learning - Image Classification')
-    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+    parser.add_argument('--batch-size', type=int, default=32, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
@@ -242,14 +242,15 @@ if __name__ == "__main__":
     test_loader = DataLoader(dataset_test, batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
     model = Net().to(device) # initialize the model.
-    optimizer = optim.Adadelta(model.parameters(), lr=args.lr) # setup the optimizer
+    optimizer = optim.Adam(model.parameters(), lr=args.lr) # setup the optimizer
     scheduler = StepLR(optimizer, step_size = 1, gamma=args.gamma)
 
     for epoch in range(1, args.epochs + 1):
         model = train(args, model, device, train_loader, optimizer, epoch)
-        accuracy = test(args, model, device, test_loader)
+        
         scheduler.step()
 
+    accuracy = test(args, model, device, test_loader)
     # save model
     dest_dir = os.path.join(args.output_dir, args.dataset_name)
 
@@ -319,13 +320,13 @@ if __name__ == "__main__":
         train_loader = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, **kwargs)
 
         model = Net().to(device) # initialize the model.
-        optimizer = optim.Adadelta(model.parameters(), lr=args.lr) # setup the optimizer
-        scheduler = StepLR(optimizer, step_size = 1, gamma=args.gamma)
+        optimizer = optim.Adam(model.parameters(), lr=args.lr) # setup the optimizer
+        # scheduler = StepLR(optimizer, step_size = 1, gamma=args.gamma)
 
         for epoch in range(1, args.epochs + 1):
             model = train(args, model, device, train_loader, optimizer, epoch)
-            accuracy = test(args, model, device, test_loader)
-            scheduler.step()
+        accuracy = test(args, model, device, test_loader)
+            # scheduler.step()
 
         # save model
         save_path = os.path.join(dest_dir_name, 'ep_'+str(episode_id)+'.pth')
