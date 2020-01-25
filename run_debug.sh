@@ -1,4 +1,7 @@
-EPOCHS=50
+# same as run_active_learn.sh
+# but with less epochs training
+# mostly for quick debugging.
+EPOCHS=1
 LR=0.001
 GAMMA=0.1
 INIT_SIZE=10

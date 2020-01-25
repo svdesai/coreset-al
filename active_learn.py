@@ -99,10 +99,77 @@ def get_features(model, loader):
             features.append(output.cpu().numpy())
             # features.append((img_name, output.cpu().numpy()))
     return features
+
+def get_probs(model, loader):
+    probs = []
+    model.eval()
+
+    count = 0
+    with torch.no_grad():
+        for sample in loader:
+            data = sample['image']
+            target = sample['label']
+            img_name = sample['img_name'][0]
+
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+
+            # convert log softmax into softmax outputs
+            prob = output.cpu().numpy()
+            prob = np.exp(prob[0])
+
+            probs.append(prob)
+
+            count += 1
+            
+    return np.array(probs)
+
 def active_sample(unlabeled_rows, sample_size, method='random', model=None):
     if method == 'random':
         np.random.shuffle(unlabeled_rows)
         sample_rows = unlabeled_rows[:sample_size]
+
+        return sample_rows
+    
+    if method == 'prob_uncertain' or method == 'prob_margin' or method == 'prob_entropy':
+        # unlabeled loader
+        data_transforms = transforms.Compose([
+                               transforms.ToTensor(),
+                               transforms.Normalize((0.1307,), (0.3081,))
+                           ])
+
+        unlab_dset = MNIST(args.dataset_root, subset='train',csv_file='unlabeled.csv',transform=data_transforms)
+        unlab_loader = DataLoader(unlab_dset, batch_size=1, shuffle=False, **kwargs)
+
+        probabilities = get_probs(model, unlab_loader)  
+        
+        if method == 'prob_uncertain':
+            max_probs = np.max(probabilities, axis=1)
+        
+            # kind of a heap sort.
+            argsorted_maxprobs = np.argpartition(max_probs, sample_size)
+            # least probabilities
+            sample_indices = argsorted_maxprobs[:sample_size]
+            sample_rows = unlabeled_rows[sample_indices]
+        
+        elif method == 'prob_margin':
+            # find the top two probabilities
+            top2_sorted = -1 * np.partition(-probabilities, 2, axis=1)
+            margins = [x[0]-x[1] for x in top2_sorted]
+            margins = np.array(margins)
+
+            # find the ones with highest margin
+            argsorted_margins = np.argpartition(-margins, sample_size)
+            sample_indices = argsorted_margins[:sample_size]
+            sample_rows = unlabeled_rows[sample_indices]
+        
+        elif method == 'prob_entropy':
+            entropy_arr = (-probabilities*np.log2(probabilities)).sum(axis=1)
+
+            # find the ones with the highest entropy
+            argsorted_ent = np.argpartition(-entropy_arr, sample_size)
+            sample_indices = argsorted_ent[:sample_size]
+            sample_rows = unlabeled_rows[sample_indices]
 
         return sample_rows
     
@@ -129,8 +196,6 @@ def active_sample(unlabeled_rows, sample_size, method='random', model=None):
         all_features = labeled_features + unlabeled_features
         labeled_indices = np.arange(0,len(labeled_features))
 
-        
-
         coreset = Coreset_Greedy(all_features)
         new_batch, max_distance = coreset.sample(labeled_indices, sample_size)
         
@@ -139,7 +204,6 @@ def active_sample(unlabeled_rows, sample_size, method='random', model=None):
         new_batch = [i - len(labeled_features) for i in new_batch]
         
         sample_rows = unlabeled_rows[new_batch]
-        # pdb.set_trace()
 
         return sample_rows
 
