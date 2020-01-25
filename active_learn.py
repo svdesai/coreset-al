@@ -105,67 +105,6 @@ def active_sample(unlabeled_rows, sample_size, method='random', model=None):
         sample_rows = unlabeled_rows[:sample_size]
 
         return sample_rows
-    # if method == 'coreset':
-
-    #     #create unlabeled loader
-    #     data_transforms = transforms.Compose([
-    #                            transforms.ToTensor(),
-    #                            transforms.Normalize((0.1307,), (0.3081,))
-    #                        ])
-
-    #     unlab_dset = MNIST(args.dataset_root, subset='train',csv_file='unlabeled.csv',transform=data_transforms)
-    #     unlab_loader = DataLoader(unlab_dset, batch_size=1, shuffle=False, **kwargs)
-
-    #     #labeled dataloader
-    #     lab_dset = MNIST(args.dataset_root, subset='train',csv_file='labeled.csv',transform=data_transforms)
-    #     lab_loader = DataLoader(lab_dset, batch_size=1, shuffle=False, **kwargs)
-
-    #     # get labeled features
-    #     labeled_features = get_features(model, lab_loader) # (img_name, features)
-    #     # pdb.set_trace()
-    #     # get unlabeled features
-    #     unlabeled_features = get_features(model, unlab_loader)# (img_name, features)
-
-    #     # find closest pairs
-    #     closest_pairs = [] # (unlabeled_index, labeled_index)
-
-    #     for u_idx, u in enumerate(unlabeled_features):
-
-    #         u_rep = u[1]
-
-    #         l_rep = labeled_features[0][1]
-    #         min_dist = np.linalg.norm(u_rep - l_rep)
-
-    #         closest_pair = (u_idx, 0, min_dist) # init
-    #         for l_i in range(1,len(labeled_features)):
-    #             l = labeled_features[l_i]
-    #             l_rep = l[1]
-    #             curr_dist = np.linalg.norm(u_rep - l_rep)
-    #             if min_dist > curr_dist:
-    #                 min_dist = curr_dist
-    #                 closest_pair = (u_idx, l_i, min_dist)
-
-    #         closest_pairs.append(closest_pair)
-    #     # pdb.set_trace()
-
-    #     # after obtaining closest pairs
-    #     # find closest pairs which are the farthest
-    #     closest_pairs = sorted(closest_pairs, key=lambda x:x[2], reverse=True) #sort by distance
-
-    #     sampled_items = closest_pairs[:sample_size]
-
-    #     # extract indices
-    #     unlab_indices = [x[0] for x in sampled_items]
-
-    #     # finally
-    #     sample_rows = []
-    #     for idx, u in enumerate(unlabeled_rows):
-    #         if idx in unlab_indices:
-    #             sample_rows.append(u)
-
-    #     # pdb.set_trace()
-    #     assert len(sample_rows) == sample_size
-    #     return np.array(sample_rows)
     
     if method == 'coreset':
         #create unlabeled loader
@@ -219,6 +158,7 @@ def log(dest_dir, episode_id, sample_method, sample_time, accuracy, labeled_rows
 if __name__ == "__main__":
     args = argparser().parse_args()
     pprint.pprint(args)
+    
     use_cuda = not args.no_cuda and torch.cuda.is_available()
     torch.manual_seed(args.seed)
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -268,7 +208,13 @@ if __name__ == "__main__":
     torch.save(model.state_dict(), save_path)
     print("initial pool model saved in: ",save_path)
 
+    # save config
+    with open(dest_dir_name + '/config.json', 'w') as f:
+        import json
+        json.dump(vars(args),f)
+    # save logs
     log(dest_dir_name, 0, args.sampling_method, 0, accuracy, [0]*args.init_size)
+    
 
 
     # start the active learning loop.

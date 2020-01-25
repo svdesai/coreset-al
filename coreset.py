@@ -55,6 +55,8 @@ class Coreset_Greedy:
         self.update_dist(already_selected, only_new=False, reset_dist=True)
         self.already_selected = already_selected
 
+        # epdb.set_trace()
+
         new_batch = []
         # pdb.set_trace()
         for _ in range(sample_size):
