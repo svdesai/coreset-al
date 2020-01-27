@@ -27,6 +27,22 @@ class Net(nn.Module):
         x = torch.flatten(x, 1)
         x = self.fc1(x)
         return x
+    
+    def stochastic_pred(self, x):
+        # add dropouts everywhere
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = self.dropout1(x)
+        x = self.conv2(x)
+        x = F.max_pool2d(x, 2)
+        x = self.dropout1(x)
+        x = torch.flatten(x, 1)
+        x = self.fc1(x)
+        x = F.relu(x)
+        x = self.dropout2(x)
+        x = self.fc2(x)
+        output = F.log_softmax(x, dim=1)
+        return output
 
     def forward(self, x):
         x = self.conv1(x)

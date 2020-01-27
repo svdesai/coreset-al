@@ -13,6 +13,7 @@ from datetime import datetime
 import argparse
 import pprint
 import time
+import csv
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -62,6 +63,10 @@ def argparser():
                         help='dataset name')
     parser.add_argument('--max-eps', type=int, default=10, metavar='N',
                         help='max episodes of active learning')
+    parser.add_argument('--dropout-iterations', type=int, default=5, metavar='N',
+                        help='dropout iterations for bald method')
+    parser.add_argument('--nclasses', type=int, default=10, metavar='N',
+                        help='number of classes in the dataset')
     return parser
 
 def remove_rows(perm, samp):
@@ -100,9 +105,12 @@ def get_features(model, loader):
             # features.append((img_name, output.cpu().numpy()))
     return features
 
-def get_probs(model, loader):
+def get_probs(model, loader, stochastic=False):
     probs = []
-    model.eval()
+    if stochastic:
+        model.train()
+    else:
+        model.eval()
 
     count = 0
     with torch.no_grad():
@@ -112,6 +120,9 @@ def get_probs(model, loader):
             img_name = sample['img_name'][0]
 
             data, target = data.to(device), target.to(device)
+
+            if stochastic:
+                output = model.stochastic_pred(data)
             output = model(data)
 
             # convert log softmax into softmax outputs
@@ -121,14 +132,13 @@ def get_probs(model, loader):
             probs.append(prob)
 
             count += 1
-            
+
     return np.array(probs)
 
-def active_sample(unlabeled_rows, sample_size, method='random', model=None):
+def active_sample(args, unlabeled_rows, sample_size, method='random', model=None):
     if method == 'random':
         np.random.shuffle(unlabeled_rows)
         sample_rows = unlabeled_rows[:sample_size]
-
         return sample_rows
     
     if method == 'prob_uncertain' or method == 'prob_margin' or method == 'prob_entropy':
@@ -150,7 +160,6 @@ def active_sample(unlabeled_rows, sample_size, method='random', model=None):
             argsorted_maxprobs = np.argpartition(max_probs, sample_size)
             # least probabilities
             sample_indices = argsorted_maxprobs[:sample_size]
-            sample_rows = unlabeled_rows[sample_indices]
         
         elif method == 'prob_margin':
             # find the top two probabilities
@@ -161,7 +170,7 @@ def active_sample(unlabeled_rows, sample_size, method='random', model=None):
             # find the ones with highest margin
             argsorted_margins = np.argpartition(-margins, sample_size)
             sample_indices = argsorted_margins[:sample_size]
-            sample_rows = unlabeled_rows[sample_indices]
+
         
         elif method == 'prob_entropy':
             entropy_arr = (-probabilities*np.log2(probabilities)).sum(axis=1)
@@ -169,8 +178,8 @@ def active_sample(unlabeled_rows, sample_size, method='random', model=None):
             # find the ones with the highest entropy
             argsorted_ent = np.argpartition(-entropy_arr, sample_size)
             sample_indices = argsorted_ent[:sample_size]
-            sample_rows = unlabeled_rows[sample_indices]
-
+           
+        sample_rows = unlabeled_rows[sample_indices]
         return sample_rows
     
     if method == 'coreset':
@@ -189,7 +198,6 @@ def active_sample(unlabeled_rows, sample_size, method='random', model=None):
 
         # get labeled features
         labeled_features = get_features(model, lab_loader) # (img_name, features)
-        # pdb.set_trace()
         # get unlabeled features
         unlabeled_features = get_features(model, unlab_loader)# (img_name, features)
 
@@ -206,6 +214,67 @@ def active_sample(unlabeled_rows, sample_size, method='random', model=None):
         sample_rows = unlabeled_rows[new_batch]
 
         return sample_rows
+    
+    if method == 'dbal_bald':
+        # according to BALD implementation by Riashat Islam
+        # first randomly sample 2000 points
+        dropout_pool_size = 2000
+        unl_rows = np.copy(unlabeled_rows)
+
+        if len(unl_rows) >= dropout_pool_size:
+            np.random.shuffle(unl_rows)
+            dropout_pool = unl_rows[:dropout_pool_size]
+            temp_unlabeled_csv = 'unlabeled_temp.csv'
+            np.savetxt(os.path.join(args.dataset_root, temp_unlabeled_csv), dropout_pool,'%s,%s',delimiter=',')
+            csv_file = temp_unlabeled_csv
+        else:
+            dropout_pool = unl_rows
+            csv_file = 'unlabeled.csv'
+        
+        
+
+        #create unlabeled loader
+        data_transforms = transforms.Compose([
+                               transforms.ToTensor(),
+                               transforms.Normalize((0.1307,), (0.3081,))
+                           ])   
+
+        unlab_dset = MNIST(args.dataset_root, subset='train',csv_file=csv_file,transform=data_transforms)
+        unlab_loader = DataLoader(unlab_dset, batch_size=1, shuffle=False, **kwargs)
+
+        scores_sum = np.zeros(shape=(len(dropout_pool), args.nclasses))
+        entropy_sum = np.zeros(shape=(len(dropout_pool)))
+
+        for _ in range(args.dropout_iterations):
+            probabilities = get_probs(model, unlab_loader, stochastic=True)
+
+            
+
+            entropy = - np.multiply(probabilities, np.log(probabilities))
+            entropy = np.sum(entropy, axis=1)
+
+            entropy_sum += entropy
+            scores_sum += probabilities
+            
+        
+        avg_scores = np.divide(scores_sum, args.dropout_iterations)
+        entropy_avg_sc = - np.multiply(avg_scores, np.log(avg_scores))
+        entropy_avg_sc = np.sum(entropy_avg_sc, axis=1)
+
+        avg_entropy = np.divide(entropy_sum, args.dropout_iterations)
+
+        bald_score = entropy_avg_sc - avg_entropy
+
+        # partial sort
+        argsorted_bald = np.argpartition(-bald_score, sample_size)
+        # get the indices
+        sample_indices = argsorted_bald[:sample_size]
+        sample_rows = dropout_pool[sample_indices]
+
+        return sample_rows
+
+
+
 
 
 def log(dest_dir, episode_id, sample_method, sample_time, accuracy, labeled_rows):
@@ -217,6 +286,16 @@ def log(dest_dir, episode_id, sample_method, sample_time, accuracy, labeled_rows
 
     log_rows.append([episode_id,sample_method, sample_time, len(labeled_rows), accuracy])
     np.savetxt(log_file,log_rows,'%s,%s,%s,%s,%s',delimiter=',')
+
+def log_picked_samples(dest_dir, samples, ep_id=0):
+    dest_file = os.path.join(dest_dir, 'picked.txt')
+
+    with open(dest_file, 'a') as f:
+        writer = csv.writer(f)
+        writer.writerow(["Episode ID", str(ep_id)])
+        for s in samples:
+            writer.writerow(s.tolist())
+            
 
 
 if __name__ == "__main__":
@@ -272,13 +351,20 @@ if __name__ == "__main__":
     torch.save(model.state_dict(), save_path)
     print("initial pool model saved in: ",save_path)
 
+
+
+    # copy labeled csv and unlabeled csv to dest_dir
+    # pdb.set_trace()
+
     # save config
     with open(dest_dir_name + '/config.json', 'w') as f:
         import json
         json.dump(vars(args),f)
     # save logs
+
+    # pdb.set_trace()
     log(dest_dir_name, 0, args.sampling_method, 0, accuracy, [0]*args.init_size)
-    
+    log_picked_samples(dest_dir_name, np.genfromtxt(labeled_csv, delimiter=',', dtype=str))
 
 
     # start the active learning loop.
@@ -307,8 +393,13 @@ if __name__ == "__main__":
 
         # sample
         sample_start = time.time()
-        sample_rows = active_sample(unlabeled_rows, sample_size, method=args.sampling_method, model=model)
+        sample_rows = active_sample(args, unlabeled_rows, sample_size, method=args.sampling_method, model=model)
         sample_end = time.time()
+
+        # log picked samples
+        log_picked_samples(dest_dir_name, sample_rows, episode_id)
+
+
 
         sample_time = sample_end - sample_start
 

@@ -15,7 +15,11 @@ class MNIST(Dataset):
     def __init__(self, root_dir, subset, csv_file, transform=None):
         self.root_dir = root_dir
         self.img_dir = os.path.join(root_dir,'images')
-        self.dataframe = pd.read_csv(os.path.join(root_dir,csv_file), header=None)
+        
+        if '/' not in csv_file:
+            self.dataframe = pd.read_csv(os.path.join(root_dir,csv_file), header=None)
+        else:
+            self.dataframe = pd.read_csv(csv_file, header=None)
         self.transform = transform
 
         self.subset = subset # train or test
